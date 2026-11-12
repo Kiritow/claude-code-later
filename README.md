@@ -22,6 +22,8 @@ claude plugin install after --marketplace /absolute/path/to/claude-after
 
 ## 命令
 
+`/later` 是 `/after` 的别名，两个完全等价，下表里的 `/after` 都可以换成 `/later`。
+
 | 命令 | 作用 |
 | --- | --- |
 | `/after <prompt>` | 加入队列（正在编辑某条时，回车会原位替换那一条） |

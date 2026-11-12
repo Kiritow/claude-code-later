@@ -1,10 +1,17 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentStatus, EngineInterface, Register, Timer } from 'claude-code'
+import type {
+  AgentStatus,
+  CommandRunInput,
+  CommandRunResult,
+  EngineInterface,
+  Register,
+  Timer,
+} from 'claude-code'
 
 import type { AfterItem, AfterStatus, AfterTracker } from '../types'
 
 // ---------------------------------------------------------------------------
-// /after <prompt>
+// /after <prompt>   (or /later <prompt>: the same command under another name)
 //
 // A queue of prompts, like the queued messages of Claude Desktop: each one is
 // submitted as the person's own prompt once Claude has finished what it is
@@ -47,7 +54,11 @@ const trackerAtom = atom({ plugin: 'after', key: 'tracker' } as const, FRESH, {
   shape: 'tracker-3',
 })
 
-const AFTER_CMD = /<command-name>\/?after<\/command-name>/
+/** The names the command answers to; both behave the same. */
+const COMMANDS = ['after', 'later'] as const
+const AFTER_CMD = /<command-name>\/?(?:after|later)<\/command-name>/
+/** A prompt-box line that is one of this mod's commands. */
+const OUR_LINE = /^\s*\/(?:after|later)(?:\s|$)/
 const AFTER_ARGS = /<command-args>[\s\S]*?<\/command-args>/
 
 function preview(text: string, max = 40): string {
@@ -83,6 +94,8 @@ let ticking = false
 let submitting = false
 let lastStatus = ''
 let timer: Timer | undefined
+/** The name the person last used, for toasts, the band and edit lines. */
+let lastCmd: string = 'after'
 
 // Diagnostics for /after --debug.
 let ticks = 0
@@ -93,6 +106,10 @@ function note(text: string): void {
   const p = (n: number) => String(n).padStart(2, '0')
   events.push(`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${text}`)
   if (events.length > 40) events.splice(0, events.length - 40)
+}
+
+const say = ($: EngineInterface, text: string) => {
+  $.ui.toast(`/${lastCmd}: ${text}`)
 }
 
 const persist = ($: EngineInterface) => {
@@ -162,19 +179,19 @@ const fire = async ($: EngineInterface, item: AfterItem) => {
     bump($)
     note(`submit "${preview(item.text, 30)}"`)
     await publish($, { waiting: ['正在提交…'], settling: false })
-    $.ui.toast(`/after: 提交 "${preview(item.text)}"`)
+    say($, `提交 "${preview(item.text)}"`)
     const result = await $.prompt.submit({ text: item.text, asUser: true })
     if (result.drop !== undefined) {
       awaitingEnd = false
       note(`submit dropped: ${result.drop}`)
-      $.ui.toast(`/after: 提交被拦截: ${result.drop}`)
+      say($, `提交被拦截: ${result.drop}`)
     }
   } catch (err) {
     awaitingEnd = false
     note(`submit failed: ${String(err)}`)
     await update($, queueAtom, q => [item, ...q.filter(x => x.id !== item.id)])
     await update($, pausedAtom, () => true)
-    $.ui.toast(`/after: 提交失败, 队列已暂停: ${String(err)}`)
+    say($, `提交失败, 队列已暂停: ${String(err)}`)
   } finally {
     submitting = false
     bump($)
@@ -235,8 +252,9 @@ const runNow = async ($: EngineInterface) => {
 }
 
 /**
- * Puts item `id` in the prompt box as `/after <text>` and holds it; the next
- * `/after <text>` replaces it in place. Refuses to overwrite a draft.
+ * Puts item `id` in the prompt box as `/<command> <text>` and holds it; the
+ * next `/after` or `/later <text>` replaces it in place. Never overwrites a
+ * draft of the person's own.
  */
 const startEdit = async ($: EngineInterface, id: string): Promise<string> => {
   const queue = await read($, queueAtom)
@@ -244,11 +262,11 @@ const startEdit = async ($: EngineInterface, id: string): Promise<string> => {
   const item = queue[index]
   if (item === undefined) return '这一条已经不在队列里了'
   const box = await $.prompt.read()
-  if (box.text.trim() !== '' && !box.text.trimStart().startsWith('/after')) {
+  if (box.text.trim() !== '' && !OUR_LINE.test(box.text)) {
     return '输入框里还有没发的内容, 先清空再编辑'
   }
   await update($, editingAtom, () => id)
-  const filled = await $.prompt.fill({ text: `/after ${item.text}`, mode: 'replace' })
+  const filled = await $.prompt.fill({ text: `/${lastCmd} ${item.text}`, mode: 'replace' })
   if (!filled.isFilled) {
     await update($, editingAtom, () => null)
     return `没法填进输入框 (${filled.refusal ?? '被拦截'})`
@@ -260,7 +278,7 @@ const startEdit = async ($: EngineInterface, id: string): Promise<string> => {
 const cancelEdit = async ($: EngineInterface) => {
   await update($, editingAtom, () => null)
   const box = await $.prompt.read()
-  if (box.text.trimStart().startsWith('/after')) await $.prompt.fill({ text: '', mode: 'replace' })
+  if (OUR_LINE.test(box.text)) await $.prompt.fill({ text: '', mode: 'replace' })
 }
 
 const debugText = async ($: EngineInterface): Promise<string> => {
@@ -270,7 +288,7 @@ const debugText = async ($: EngineInterface): Promise<string> => {
   const editing = await read($, editingAtom)
   const agents = await $.agent.list().catch(() => [])
   return [
-    '/after debug',
+    `/${lastCmd} debug (answers to ${COMMANDS.map(c => '/' + c).join(', ')})`,
     `queue: ${queue.length}${queue.map((q, i) => `\n  ${i + 1}. ${q.id === editing ? '[editing] ' : ''}${preview(q.text, 60)}`).join('')}`,
     `paused: ${paused}  status: ${status.settling ? 'settling' : status.waiting.join('; ') || '-'}`,
     `mainTurns: [${[...mainTurns].join(', ')}]  awaitingEnd: ${awaitingEnd}  lastEndOk: ${lastEndOk}`,
@@ -282,6 +300,101 @@ const debugText = async ($: EngineInterface): Promise<string> => {
     'events:',
     ...events.map(x => `  ${x}`),
   ].join('\n')
+}
+
+/** `/after ...` and `/later ...`: one handler, `cmd` the name that was typed. */
+const runCommand = async (
+  $: EngineInterface,
+  e: CommandRunInput,
+  cmd: string,
+): Promise<CommandRunResult> => {
+  lastCmd = cmd
+  const args = e.args.trim()
+
+  if (args === '' || args === '--list') {
+    const queue = await read($, queueAtom)
+    const status = await read($, statusAtom)
+    if (queue.length === 0) say($, '队列为空')
+    else {
+      const why = status.settling ? '即将提交' : status.waiting.join('; ') || '检查中'
+      say($, `${queue.length} 条排队 · ${why}`)
+    }
+    return {}
+  }
+  if (args === '--clear') {
+    await update($, queueAtom, () => [])
+    await update($, editingAtom, () => null)
+    say($, '队列已清空')
+    return {}
+  }
+  if (args === '--pause') {
+    await update($, pausedAtom, () => true)
+    say($, `已暂停, /${cmd} --resume 继续`)
+    return {}
+  }
+  if (args === '--resume') {
+    await update($, pausedAtom, () => false)
+    say($, '已继续')
+    return {}
+  }
+  if (args === '--debug') {
+    return { text: await debugText($) }
+  }
+  if (args === '--reset') {
+    mainTurns = new Set()
+    agentTurns = new Map()
+    lastEndOk = true
+    awaitingEnd = false
+    restoredMain = new Set()
+    restoredAwaiting = false
+    note(`reset by /${cmd} --reset`)
+    bump($)
+    say($, '跟踪状态已重置')
+    return {}
+  }
+  if (args === '--now') {
+    const why = await runNow($)
+    if (why !== undefined) say($, `${why}`)
+    return {}
+  }
+  const editArg = /^--edit(?:\s+(\d+))?$/.exec(args)
+  if (editArg !== null) {
+    const queue = await read($, queueAtom)
+    const n = Number(editArg[1] ?? '1')
+    const item = queue[n - 1]
+    if (item === undefined) say($, `没有第 ${n} 条`)
+    else {
+      // The command's own line is still in the box as it runs; clear it first.
+      await $.prompt.fill({ text: '', mode: 'replace' })
+      say($, `${await startEdit($, item.id)}`)
+    }
+    return {}
+  }
+
+  // A prompt: replaces the item being edited, else joins the queue.
+  const editing = await read($, editingAtom)
+  if (editing !== null) {
+    let index = -1
+    await update($, queueAtom, q => {
+      index = q.findIndex(x => x.id === editing)
+      return index < 0 ? q : q.map(x => (x.id === editing ? { ...x, text: args } : x))
+    })
+    await update($, editingAtom, () => null)
+    if (index >= 0) {
+      bump($)
+      note(`edited #${index + 1}`)
+      say($, `第 ${index + 1} 条已更新 "${preview(args)}"`)
+      return {}
+    }
+  }
+
+  const item: AfterItem = { id: newId(), text: args, addedAt: await $.clock.now() }
+  const queue = await update($, queueAtom, q => [...q, item])
+  streak = 0
+  bump($)
+  note(`queued #${queue.length} "${preview(item.text, 30)}"`)
+  say($, `已排队 #${queue.length} "${preview(item.text)}", Claude 做完当前的事后提交`)
+  return {}
 }
 
 export const register: Register = on => {
@@ -297,12 +410,24 @@ export const register: Register = on => {
     restoredAwaiting = saved.awaitingEnd
     note(`session.start: restored turns [${saved.mainTurns.join(',')}], awaiting ${saved.awaitingEnd}`)
 
+    const hint = '<prompt> | --edit N | --now | --pause | --resume | --clear | --debug | --reset'
     await $.command.register({
       name: 'after',
       description: 'Claude 做完当前的事(含 subagent)后再提交这条 prompt, 像排队消息一样',
-      argumentHint: '<prompt> | --edit N | --now | --pause | --resume | --clear | --debug | --reset',
+      argumentHint: hint,
       immediate: true,
     })
+    try {
+      await $.command.register({
+        name: 'later',
+        description: '同 /after: 把 prompt 排队, Claude 做完当前的事后提交',
+        argumentHint: hint,
+        immediate: true,
+      })
+    } catch (err) {
+      // Should a later Claude Code ship a /later of its own, /after still works.
+      note(`could not register /later: ${String(err)}`)
+    }
 
     timer?.cancel()
     timer = $.clock.every(TICK_MS, () => {
@@ -350,7 +475,7 @@ export const register: Register = on => {
       if (!AFTER_CMD.test(block.text)) return block
       const text = block.text.replace(
         AFTER_ARGS,
-        '<command-args>(queued by /after; it will be sent as its own prompt later)</command-args>',
+        '<command-args>(queued; it will be sent as its own prompt later)</command-args>',
       )
       if (text === block.text) return block
       changed = true
@@ -361,94 +486,8 @@ export const register: Register = on => {
 
   // ---- the command --------------------------------------------------------
 
-  on('command.run', { command: 'after' }, async ($, e) => {
-    const args = e.args.trim()
-
-    if (args === '' || args === '--list') {
-      const queue = await read($, queueAtom)
-      const status = await read($, statusAtom)
-      if (queue.length === 0) $.ui.toast('/after: 队列为空')
-      else {
-        const why = status.settling ? '即将提交' : status.waiting.join('; ') || '检查中'
-        $.ui.toast(`/after: ${queue.length} 条排队 · ${why}`)
-      }
-      return {}
-    }
-    if (args === '--clear') {
-      await update($, queueAtom, () => [])
-      await update($, editingAtom, () => null)
-      $.ui.toast('/after: 队列已清空')
-      return {}
-    }
-    if (args === '--pause') {
-      await update($, pausedAtom, () => true)
-      $.ui.toast('/after: 已暂停, /after --resume 继续')
-      return {}
-    }
-    if (args === '--resume') {
-      await update($, pausedAtom, () => false)
-      $.ui.toast('/after: 已继续')
-      return {}
-    }
-    if (args === '--debug') {
-      return { text: await debugText($) }
-    }
-    if (args === '--reset') {
-      mainTurns = new Set()
-      agentTurns = new Map()
-      lastEndOk = true
-      awaitingEnd = false
-      restoredMain = new Set()
-      restoredAwaiting = false
-      note('reset by /after --reset')
-      bump($)
-      $.ui.toast('/after: 跟踪状态已重置')
-      return {}
-    }
-    if (args === '--now') {
-      const why = await runNow($)
-      if (why !== undefined) $.ui.toast(`/after: ${why}`)
-      return {}
-    }
-    const editArg = /^--edit(?:\s+(\d+))?$/.exec(args)
-    if (editArg !== null) {
-      const queue = await read($, queueAtom)
-      const n = Number(editArg[1] ?? '1')
-      const item = queue[n - 1]
-      if (item === undefined) $.ui.toast(`/after: 没有第 ${n} 条`)
-      else {
-        // The command's own line is still in the box as it runs; clear it first.
-        await $.prompt.fill({ text: '', mode: 'replace' })
-        $.ui.toast(`/after: ${await startEdit($, item.id)}`)
-      }
-      return {}
-    }
-
-    // A prompt: replaces the item being edited, else joins the queue.
-    const editing = await read($, editingAtom)
-    if (editing !== null) {
-      let index = -1
-      await update($, queueAtom, q => {
-        index = q.findIndex(x => x.id === editing)
-        return index < 0 ? q : q.map(x => (x.id === editing ? { ...x, text: args } : x))
-      })
-      await update($, editingAtom, () => null)
-      if (index >= 0) {
-        bump($)
-        note(`edited #${index + 1}`)
-        $.ui.toast(`/after: 第 ${index + 1} 条已更新 "${preview(args)}"`)
-        return {}
-      }
-    }
-
-    const item: AfterItem = { id: newId(), text: args, addedAt: await $.clock.now() }
-    const queue = await update($, queueAtom, q => [...q, item])
-    streak = 0
-    bump($)
-    note(`queued #${queue.length} "${preview(item.text, 30)}"`)
-    $.ui.toast(`/after: 已排队 #${queue.length} "${preview(item.text)}", Claude 做完当前的事后提交`)
-    return {}
-  })
+  on('command.run', { command: 'after' }, ($, e) => runCommand($, e, 'after'))
+  on('command.run', { command: 'later' }, ($, e) => runCommand($, e, 'later'))
 
   // ---- the band above the prompt -----------------------------------------
 
@@ -480,7 +519,7 @@ export const register: Register = on => {
           <Box flexGrow={1} flexShrink={1}>
             <Text wrap="truncate-end">
               <Text color="claude" bold>
-                /after
+                /{lastCmd}
               </Text>{' '}
               <Text dimColor>{queue.length} 条 ·</Text>{' '}
               <Text color={status.settling ? 'success' : 'warning'}>{state}</Text>
@@ -519,7 +558,7 @@ export const register: Register = on => {
                   label="编辑"
                   plain
                   onPress={() => {
-                    void startEdit($, item.id).then(msg => $.ui.toast(`/after: ${msg}`))
+                    void startEdit($, item.id).then(msg => say($, `${msg}`))
                   }}
                 />
               )}

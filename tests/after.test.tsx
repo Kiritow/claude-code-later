@@ -247,3 +247,19 @@ test('/after --debug reports the tracker', async ($, on) => {
   expect(String(out.text)).toContain('mainTurns: [t9]')
   expect(String(out.text)).toContain('turn.start main t9')
 })
+
+test('/later is the same command: queues, edits with its own name, and sends', async ($, on) => {
+  const { clock, submitted, box } = world(on, { list: [] })
+  const later = (args: string) =>
+    $.command.run({ command: 'later', args, origin: { kind: 'composer' }, presentation: PRESENTATION })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await start($, 't1')
+  await later('ship it')
+  await later('--edit 1')
+  expect(box.text).toBe('/later ship it')
+  box.text = ''
+  await after($, 'ship it now')
+  await complete($, 't1')
+  await clock.advance(3_000)
+  expect(submitted).toEqual(['ship it now'])
+})

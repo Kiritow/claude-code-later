@@ -1,6 +1,6 @@
 # INSTALL — for agents
 
-Install guide for the Claude Code plugin `after` (a function-hooks mod, which provides the `/after` slash command).
+Install guide for the Claude Code plugin `after` (a function-hooks mod, which provides the `/after` slash command and its alias `/later`).
 Written for an AI agent to follow step by step: every step lists the command, the expected result and what to do on failure.
 Run the steps in order. Do not skip the checks.
 
@@ -86,13 +86,13 @@ Optional static checks (no session needed):
 
 ```sh
 claude plugin validate <REPO>   # must end with "✔ Validation passed" (warnings about README/LICENSE/icon are for the public directory, ignore them)
-claude plugin test <REPO>       # must report "9 pass, 0 fail" (or more passes if tests were added)
+claude plugin test <REPO>       # must report "10 pass, 0 fail" (or more passes if tests were added)
 ```
 
 Functional check (needs a person at an interactive session, so tell the user to do it):
 
 1. Start a **new** session with `claude`. Sessions that were already running before the install do not have the plugin yet.
-2. Type `/after`. Expected: a toast `/after: 队列为空`. The command also shows in the `/` typeahead.
+2. Type `/after`. Expected: a toast `/after: 队列为空`. `/after` and `/later` both show in the `/` typeahead; `/later` behaves the same.
 3. Type `/after say hi`. Expected: a band above the prompt listing the item. About 2 seconds later (when nothing is running) the prompt `say hi` is submitted as the user's own message.
 
 ## Update
@@ -117,7 +117,7 @@ Running sessions keep it until restarted (or until `/reload-plugins`). The repos
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `/after` is an unknown command | The session started before the install. Start a new session, or run `/reload-plugins`. Then check Step 3. |
+| `/after` or `/later` is an unknown command | The session started before the install. Start a new session, or run `/reload-plugins`. Then check Step 3. |
 | A queued prompt was submitted twice | Two copies are loaded. Redo Step 1 and keep exactly one. |
 | The queue never fires | The band says what it waits for (`Claude 正在工作`, a busy subagent, `第 1 条正在编辑`, `已暂停`). `/after --now` submits the head item at once. `/after --resume` if it says `已暂停` (paused); cancel the edit if the head item is being edited. |
 | The band keeps saying `等待: ...` although nothing runs | Run `/after --debug`: it prints the tracker (main turns, agents, edit state) and the last 40 events into the transcript. `/after --reset` clears the tracker. A "running" turn restored from an earlier load is dropped by itself once the prompt box reports idle for 2s. |
