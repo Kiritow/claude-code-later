@@ -1,9 +1,11 @@
 {
-  "name": "claude-after",
-  "owner": { "name": "Kiritow" },
+  "name": "claude-code-later",
+  "owner": {
+    "name": "Kiritow"
+  },
   "plugins": [
     {
-      "name": "after",
+      "name": "later",
       "source": "./",
       "description": "/later <prompt> (alias /after): queue prompts like Claude Desktop's queued messages; each is submitted once Claude finishes its turn and no subagent runs"
     }

@@ -1,7 +1,6 @@
 # INSTALL — for agents
 
-Install guide for the Claude Code plugin `after` (a function-hooks mod). It provides the `/later` slash command and its alias `/after`.
-Note the names: the **plugin** is `after` (install id `after@claude-after`), the main **command** is `/later`.
+Install guide for the Claude Code plugin `later`. It provides the `/later` slash command and its alias `/after` (identical).
 Written for an AI agent to follow step by step: every step lists the command, the expected result and what to do on failure.
 Run the steps in order. Do not skip the checks.
 
@@ -9,133 +8,142 @@ Run the steps in order. Do not skip the checks.
 
 | Item | Value |
 | --- | --- |
-| Plugin name | `after` |
+| Plugin name | `later` |
 | Slash commands | `/later` (main), `/after` (alias, identical) |
-| Marketplace name | `claude-after` (this repository is itself a one-plugin marketplace: `.claude-plugin/marketplace.json`, `source: "./"`) |
-| Installed plugin id | `after@claude-after` |
+| Repository | <https://github.com/Kiritow/claude-code-later> (public), GitHub shorthand `Kiritow/claude-code-later` |
+| Marketplace name | `claude-code-later` (the repository is itself a one-plugin marketplace: `.claude-plugin/marketplace.json`, `source: "./"`) |
+| Installed plugin id | `later@claude-code-later` |
 | Kind | function-hooks mod: `hooks/hooks.json` → `{ "modules": ["./register.tsx"] }` |
 | Built and tested on | Claude Code `2.1.322` |
-| Runtime dependencies | none (no npm install, no build step) |
+| Runtime dependencies | none (no npm install, no build step); `git` and access to github.com for the GitHub install |
 | Default install scope | `user` (global: every new Claude Code session on this machine) |
-
-`<REPO>` below means the absolute path of this repository's root, the folder that holds this file and `.claude-plugin/`.
-On the original machine it is `/home/kiritow/workspace/claude-after`.
+| Legacy name | Before it was renamed, the plugin was `after` from marketplace `claude-after` (id `after@claude-after`). Remove that one first (Step 2). |
 
 ## Step 0: Preconditions
 
 1. `claude --version` prints a version. If the command is not found, stop: Claude Code is not installed.
-2. `test -f <REPO>/.claude-plugin/plugin.json && test -f <REPO>/.claude-plugin/marketplace.json && echo ok` prints `ok`.
-   If it does not, `<REPO>` is wrong: find the folder that holds both files.
-3. If the repository is not on this machine yet, clone it first (`git clone <url> <REPO>`), then use the absolute path of the clone.
-4. The folder must stay where it is after the install. The installed plugin is **read from this folder**, not copied.
-   Moving or deleting the folder breaks the plugin. Pick its final location before installing.
+2. For the GitHub install: `git ls-remote https://github.com/Kiritow/claude-code-later HEAD` prints one line with a commit hash. If it fails, stop and report the network or git problem to the user.
 
-## Step 1: Make sure it will not load twice
+## Step 1: Choose the source
 
-Two loaded copies of this mod mean two pollers, and **each queued prompt could be submitted twice**.
-Before installing, check that no other copy is loaded:
+- **A. GitHub (default, for using the plugin).** Claude Code keeps its own copy. Updates come with `claude plugin update`.
+- **B. A local clone (for developing the plugin).** The plugin is read from the clone's folder directly: an edit is picked up with `/reload-plugins`. The folder must stay where it is.
+
+Use B only if the user says they want to change the plugin's code. Otherwise use A.
+
+## Step 2: Make sure it will not load twice
+
+Two loaded copies mean two pollers, and **each queued prompt could be submitted twice**. Check:
 
 ```sh
-claude plugin list 2>&1 | grep -n "after@" || echo "no after plugin installed"
+claude plugin list 2>&1 | grep -nE "later@|after@" || echo "none installed"
+claude plugin marketplace list 2>&1 | grep -nE "claude-code-later|claude-after" || echo "no marketplace"
 grep -n "CLAUDE_CODE_PLUGIN_DIRS" ~/.claude/settings.json 2>/dev/null || echo "no CLAUDE_CODE_PLUGIN_DIRS"
 ```
 
-- `after@claude-after` already listed with `Read from: <REPO>`: it is already installed. Skip to Step 3.
-- `after@` listed with any other marketplace or path: uninstall that copy first (`claude plugin uninstall <that id>`), or ask the user.
-- `CLAUDE_CODE_PLUGIN_DIRS` names this folder or another copy of it: remove that entry, or do not install (use one way only).
-- Also do not start sessions with `claude --plugin-dir <REPO>` once it is installed.
+- `after@claude-after` listed (legacy name): remove it.
+  ```sh
+  claude plugin uninstall after@claude-after
+  claude plugin marketplace remove claude-after
+  ```
+- `later@claude-code-later` already listed: it is installed. If its source matches the one chosen in Step 1, skip to Step 4.
+  Otherwise uninstall it (`claude plugin uninstall later@claude-code-later`, then `claude plugin marketplace remove claude-code-later`) before installing from the other source.
+- Any other `later@...` or `after@...` id: ask the user before removing it. It may be a different plugin.
+- `CLAUDE_CODE_PLUGIN_DIRS` names a copy of this plugin: remove that entry, or do not install. Use one way only.
+- Once it is installed, do not start sessions with `claude --plugin-dir <folder of this plugin>`.
 
-## Step 2: Install (global, user scope)
+## Step 3A: Install from GitHub
 
 ```sh
-claude plugin install after --marketplace <REPO> --scope user < /dev/null
+claude plugin install later --marketplace Kiritow/claude-code-later --scope user < /dev/null
 ```
 
-Expected output (exit code 0):
+Expected: exit code 0, and the output ends with
 
 ```
-Adding marketplace…
-✔ Successfully added marketplace: claude-after (declared in user settings)
-Installing plugin "after@claude-after"...✔ Successfully installed plugin: after@claude-after (scope: user)
+✔ Successfully installed plugin: later@claude-code-later (scope: user)
 ```
 
-- If the marketplace `claude-after` was added before, the first line can be missing. That is fine.
+It may first print `Adding marketplace…` and `✔ Successfully added marketplace: claude-code-later (declared in user settings)`.
+
 - `--json` prints one machine-readable result line instead, if you need to parse it.
 - No prompt should appear (the plugin declares no command source). If one does, stop and show it to the user. Do not pass `-y` without the user's consent.
-- Installing for one project only: use `--scope project` (shared via the project's `.claude/settings.json`) or `--scope local`, run from inside that project.
-- Inside an interactive session the same install is `/plugin install after --marketplace <REPO>`.
-  Then answer `y` to add the marketplace and pick the `user` scope.
+- One project only: `--scope project` (shared through the project's `.claude/settings.json`) or `--scope local`, run from inside that project.
+- Inside an interactive session the same install is `/plugin install later --marketplace Kiritow/claude-code-later`. Answer `y` to add the marketplace, then pick the user scope.
 
-## Step 3: Verify
+## Step 3B: Install from a local clone
 
-```sh
-claude plugin list 2>&1 | grep -A4 "after@claude-after"
-```
-
-Expected:
-
-```
-  ❯ after@claude-after
-    Version: 0.1.0
-    Read from: <REPO>
-    Scope: user
-    Status: ✔ enabled
-```
-
-If `Status` is disabled, run `claude plugin enable after@claude-after`.
-
-Optional static checks (no session needed):
+Pick the folder's final location first (the plugin is read from it). `<CLONE>` is its absolute path.
 
 ```sh
-claude plugin validate <REPO>   # must end with "✔ Validation passed" (warnings about README/LICENSE/icon are for the public directory, ignore them)
-claude plugin test <REPO>       # must report "10 pass, 0 fail" (or more passes if tests were added)
+git clone https://github.com/Kiritow/claude-code-later.git <CLONE>
+claude plugin install later --marketplace <CLONE> --scope user < /dev/null
+```
+
+Expected: exit code 0, output ending with `✔ Successfully installed plugin: later@claude-code-later (scope: user)`.
+
+## Step 4: Verify
+
+```sh
+claude plugin list 2>&1 | grep -A4 "later@claude-code-later"
+```
+
+Expected: a block for `later@claude-code-later` with `Scope: user` and `Status: ✔ enabled`. For a local clone (3B) it also shows `Read from: <CLONE>`.
+If `Status` is disabled, run `claude plugin enable later@claude-code-later`.
+
+Optional static checks, for a local clone:
+
+```sh
+claude plugin validate <CLONE>   # must end with "✔ Validation passed" (warnings about README/LICENSE/icon are for the public directory; ignore them)
+claude plugin test <CLONE>       # must report "10 pass, 0 fail" (or more passes if tests were added)
 ```
 
 Functional check (needs a person at an interactive session, so tell the user to do it):
 
-1. Start a **new** session with `claude`. Sessions that were already running before the install do not have the plugin yet.
-2. Type `/later`. Expected: a toast `/later: 队列为空` ("the queue is empty"; the interface text is in Chinese). `/later` and `/after` both show in the `/` typeahead; `/after` behaves the same.
+1. Start a **new** session with `claude`. Sessions that were running before the install do not have the plugin yet (or run `/reload-plugins` in them).
+2. Type `/later`. Expected: a toast `/later: the queue is empty`. `/later` and `/after` both show in the `/` typeahead.
 3. Type `/later say hi`. Expected: a band above the prompt listing the item. About 2 seconds later (when nothing is running) the prompt `say hi` is submitted as the user's own message.
 
 ## Update
 
-The plugin is read from `<REPO>` directly, so an update is just new files in the folder:
-
-1. `git -C <REPO> pull` (or edit the files).
-2. New sessions pick the change up automatically. In a running session, run `/reload-plugins`.
-
-No version bump and no reinstall are needed.
+- **GitHub install (3A):**
+  ```sh
+  claude plugin marketplace update claude-code-later
+  claude plugin update later@claude-code-later
+  ```
+  Then restart running sessions, or run `/reload-plugins` in them.
+- **Local clone (3B):** `git -C <CLONE> pull` (or edit the files), then `/reload-plugins` in running sessions. New sessions pick it up by themselves. No reinstall.
 
 ## Uninstall
 
 ```sh
-claude plugin uninstall after@claude-after
-claude plugin marketplace remove claude-after   # optional: also forget the marketplace
+claude plugin uninstall later@claude-code-later
+claude plugin marketplace remove claude-code-later   # optional: also forget the marketplace
 ```
 
-Running sessions keep it until restarted (or until `/reload-plugins`). The repository folder can be deleted after that.
+Running sessions keep it until restarted (or until `/reload-plugins`). A local clone can be deleted after that.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 | --- | --- |
-| `/later` or `/after` is an unknown command | The session started before the install. Start a new session, or run `/reload-plugins`. Then check Step 3. |
-| A queued prompt was submitted twice | Two copies are loaded. Redo Step 1 and keep exactly one. |
-| The queue never fires | The band says what it waits for: `Claude 正在工作` (Claude is working), `N 个 subagent 运行中` (N subagents running), `第 1 条正在编辑` (item 1 is being edited), `已暂停` (paused). `/later --now` submits the head item at once. `/later --resume` if it is paused; press 取消 (cancel) on the edited row, or press Enter on the edit line, to release an item if the head item is being edited. |
-| The band keeps saying `等待: ...` (waiting: ...) although nothing runs | Run `/later --debug`: it prints the tracker (main turns, agents, edit state) and the last 40 events into the transcript. `/later --reset` clears the tracker. A "running" turn restored from an earlier load is dropped by itself once the prompt box reports idle for 2s. |
-| A hook error line in the transcript naming `after` | Run `claude --debug` and look for lines starting with `after:`. Run `claude plugin validate <REPO>`. |
-| Type-checking with `tsc -p <REPO>` fails with a missing `.claude-plugin/types/tsconfig.json` | That folder is written by Claude Code only when it loads the folder as a hot-reloaded mod. Start once with `claude --plugin-dir <REPO>` (interactive, and only while the installed copy is disabled, see Step 1) to have it written. Otherwise use the tsconfig from the header of the engine's `claude-code.d.ts`. The folder is git-ignored. |
+| `/later` or `/after` is an unknown command | The session started before the install. Start a new session, or run `/reload-plugins`. Then check Step 4. |
+| A queued prompt was submitted twice | Two copies are loaded (for example the legacy `after@claude-after` beside `later@claude-code-later`, or a GitHub install beside a local one). Redo Step 2 and keep exactly one. |
+| The queue never fires | The band says what it waits for: `Claude is working`, `N subagents running`, `item 1 is being edited`, `paused`. `/later --now` sends the head item at once. `/later --resume` if it is paused. Press **Cancel** on the edited row, or Enter on the edit line, to release an item being edited. |
+| The band keeps saying `waiting: ...` although nothing runs | Run `/later --debug`: it prints the tracker (main turns, agents, edit state) and the last 40 events into the transcript. `/later --reset` clears the tracker. A "running" turn restored from an earlier load is dropped by itself once the prompt box reports idle for 2s. |
+| A hook error line in the transcript naming `later` | Run `claude --debug` and look for lines starting with `later:`. For a local clone, run `claude plugin validate <CLONE>`. |
+| Type-checking with `tsc -p <CLONE>` fails with a missing `.claude-plugin/types/tsconfig.json` | Claude Code writes that folder only when it loads the folder as a hot-reloaded mod. Start once with `claude --plugin-dir <CLONE>` (interactive, and only while the installed copy is disabled, see Step 2) to have it written. Otherwise use the tsconfig from the header of the engine's `claude-code.d.ts`. The folder is git-ignored. |
 
 ## Files
 
 ```
-.claude-plugin/plugin.json        manifest (name, version, "types")
-.claude-plugin/marketplace.json   makes this repo installable as marketplace "claude-after"
+.claude-plugin/plugin.json        manifest (name "later", version, "types")
+.claude-plugin/marketplace.json   makes the repo installable as marketplace "claude-code-later"
 hooks/hooks.json                  names the hooks module
-hooks/register.tsx                the mod: /later and /after commands, turn/subagent tracking, band above the prompt (edit/remove/submit now)
+hooks/register.tsx                the mod: /later and /after commands, turn/subagent tracking, band above the prompt
 types/index.d.ts                  $.state contract (queue, status, paused, editing, tracker)
-tests/after.test.tsx              tests run by `claude plugin test`
+tests/later.test.tsx              tests run by `claude plugin test`
 tsconfig.json                     extends the engine-written .claude-plugin/types/tsconfig.json
-README.md                         what the mod does, for people
+README.md                         what the plugin does, for people
 INSTALL.md                        this file
 ```

@@ -1,28 +1,48 @@
 # later
 
-`/later <prompt>`: queue a prompt, like Claude Desktop's queued messages. It is submitted as your own message once Claude has finished what it is doing. While it waits you can edit it, remove it, or submit it at once.
+A Claude Code plugin that adds `/later <prompt>`: queue a prompt, like Claude Desktop's queued messages. It is submitted as your own message once Claude has finished what it is doing. While it waits you can edit it, remove it, or send it at once.
 
-`/after` is an alias of `/later`: the two are identical. (The plugin itself is named `after`, installed as `after@claude-after`.)
+`/after` is an alias of `/later`: the two are identical.
 
-"Finished" means all of the following, holding for 2 seconds of quiet:
-
-- No main-conversation turn is running, and the last one ended normally. An interrupted turn (Esc) or one that died on an API error does not count: the queue waits for the next turn that ends normally.
-- The turn started by the previous queued prompt has ended.
-- No subagent or teammate is running (`$.agent.list()` plus the subagents' turn events).
-
-Background shells, monitors and scheduled wakeups are not waited for: as with Desktop's queued messages, the prompt goes as soon as Claude finishes its turn.
-The queue submits one prompt at a time.
+Repository: <https://github.com/Kiritow/claude-code-later>
 
 ## Install
 
-```sh
-claude plugin install after --marketplace /absolute/path/to/claude-after
+In a Claude Code session:
+
+```
+/plugin install later --marketplace Kiritow/claude-code-later
 ```
 
-This installs at user scope (global): every new session loads it. The plugin is read from this folder directly, so do not move the folder after installing. After editing the code, run `/reload-plugins` in a session to pick up the change.
-Full steps, checks, update and uninstall are in [INSTALL.md](INSTALL.md), written so an agent can follow it step by step.
+Answer `y` to add the marketplace, then pick the user scope.
 
-## Commands
+Or from a shell:
+
+```sh
+claude plugin install later --marketplace Kiritow/claude-code-later
+```
+
+In the Claude desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `Kiritow/claude-code-later`, then Add plugin.
+
+The plugin installs at user scope (every new session loads it) as `later@claude-code-later`. Start a new session, or run `/reload-plugins` in a running one.
+
+Step-by-step instructions with checks, update and uninstall, written so an agent can follow them: [INSTALL.md](INSTALL.md).
+
+## Usage
+
+```
+/later run the full test suite and fix what fails
+```
+
+"Done" means all of the following, holding for 2 seconds of quiet:
+
+- No main-conversation turn is running, and the last one ended normally. An interrupted turn (Esc) or one that died on an API error does not count: the queue waits for the next turn that ends normally.
+- The turn started by the previous queued prompt has ended.
+- No subagent or teammate is running.
+
+Background shells, monitors and scheduled wakeups are not waited for: as with Desktop's queued messages, the prompt goes as soon as Claude finishes its turn. The queue submits one prompt at a time.
+
+### Commands
 
 Every `/later` below can also be written `/after`.
 
@@ -31,22 +51,38 @@ Every `/later` below can also be written `/after`.
 | `/later <prompt>` | Add to the queue. While an item is being edited, Enter replaces that item in place. |
 | `/later --edit N` | Put item N (default 1) in the prompt box for editing. The item is held, and not submitted, while it is edited. |
 | `/later` | Show how many items are queued and what the queue waits for. |
-| `/later --now` | Submit the head item right away, whatever the state. |
+| `/later --now` | Send the head item right away, whatever the state. |
 | `/later --pause` / `--resume` | Pause / resume automatic submission. |
 | `/later --clear` | Empty the queue. |
 | `/later --debug` | Print the internal tracking state and recent events (for troubleshooting; the output goes into the conversation). |
 | `/later --reset` | Reset the tracking state (the way out if it seems stuck). |
 
-## The band above the prompt
+### The band above the prompt
 
-While the queue is not empty, a band above the prompt box lists the queued prompts and what the queue waits for. It has three buttons: 立即提交 (submit now), 暂停 / 继续 (pause / resume) and 清空 (clear).
+While the queue is not empty, a band above the prompt box lists the queued prompts and shows what the queue waits for, for example `waiting: Claude is working`, `waiting: 1 subagent running`, `waiting: item 1 is being edited` or `waiting: paused`, then `about to submit…` once everything is clear. Its buttons: **Send now**, **Pause** / **Resume**, **Clear**.
 
-Each item has 编辑 (edit) and × (remove). 编辑 puts `/later <text>` in the prompt box (it never overwrites a draft you have typed yourself). Edit it and press Enter to save it in place, or press 取消 (cancel) to give up.
+Each item has **Edit** and **×** (remove). **Edit** puts `/later <text>` in the prompt box (it never overwrites a draft you have typed yourself); change it and press Enter to save it in place, or press **Cancel** to keep it as it was. The band, the toasts and the edit line use the command name you last typed, `/later` or `/after`.
 
-The band, the toasts and the edit line use the command name you last typed, `/later` or `/after`.
-
-The interface text (band, toasts) is in Chinese. The status line reads `等待: …` (waiting: …) with reasons such as `Claude 正在工作` (Claude is working), `N 个 subagent 运行中` (N subagents running), `第 1 条正在编辑` (item 1 is being edited) or `已暂停` (paused), and `即将提交…` (about to submit) once everything is clear.
-
-## Privacy
+### Privacy
 
 The queued text is not shown to the model before it is actually submitted: the arguments in the command's transcript row are replaced.
+
+## Development
+
+```sh
+git clone https://github.com/Kiritow/claude-code-later.git
+claude plugin install later --marketplace "$PWD/claude-code-later"
+```
+
+Installed from a local folder, the plugin is read from that folder directly: after editing, run `/reload-plugins` in a session. Do not move the folder, and do not install it from GitHub and from a folder at the same time (two copies would send each queued prompt twice).
+
+```sh
+claude plugin validate .   # manifest and hooks module
+claude plugin test .       # tests/later.test.tsx
+```
+
+Notes:
+
+- The hooks module is `hooks/register.tsx`; its `$.state` contract is `types/index.d.ts`.
+- It does not use the classic `Stop` event: a higher-tier built-in plugin can send that event on past other plugins' hooks. Turn events (`turn.start`, `turn.complete`) and calls on `$` (`$.agent.list()`) reach every plugin.
+- Built and tested on Claude Code 2.1.322. The plugin API is early access and may change between releases.

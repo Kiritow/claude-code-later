@@ -1,5 +1,5 @@
 {
-  "name": "after",
+  "name": "later",
   "version": "0.1.0",
   "description": "/later <prompt> (alias /after): queue prompts like Claude Desktop's queued messages; each is submitted once Claude finishes its turn and no subagent runs",
   "types": "./types/index.d.ts"

@@ -58,7 +58,7 @@ const BAND_PROPS = (isWorking: boolean) => ({
 })
 
 const band = ($: Eng, surface: 'terminal' | 'desktop', isWorking: boolean) =>
-  $.ui.mount({ plugin: 'after', surface, component: 'AbovePrompt', props: BAND_PROPS(isWorking) })
+  $.ui.mount({ plugin: 'later', surface, component: 'AbovePrompt', props: BAND_PROPS(isWorking) })
 
 const agentA: AgentInfo = { id: 'agent-a', description: 'research', type: 'Explore', status: 'running' }
 
@@ -121,7 +121,7 @@ test('the band lists the queue and why it waits', async ($, on) => {
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await band($, surface, true)
-    expect(await ui.find({ type: 'Text', text: /Claude 正在工作/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Claude is working/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /write the changelog/ })).toBeDefined()
     await ui.unmount()
   }
@@ -136,12 +136,12 @@ test('edit from the band: held while edited, replaced in place, then sent', asyn
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await band($, surface, true)
-    const edit = (await ui.findAll({ type: 'Button' })).find(b => b.text === '编辑')
+    const edit = (await ui.findAll({ type: 'Button' })).find(b => b.text === 'Edit')
     expect(edit?.key).toBeDefined()
     if (surface === 'terminal') {
       await ui.press({ key: String(edit?.key) })
       expect(box.text).toBe('/after frist draft')
-      expect(await ui.find({ type: 'Text', text: /编辑中/ })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /\[editing\]/ })).toBeDefined()
     }
     await ui.unmount()
   }
@@ -172,7 +172,7 @@ test('/after --edit N, and an edit never overwrites a draft', async ($, on) => {
   // A draft of the person's own is left alone.
   box.text = 'something I am typing'
   const ui = await band($, 'terminal', true)
-  const edit = (await ui.findAll({ type: 'Button' })).find(b => b.text === '编辑')
+  const edit = (await ui.findAll({ type: 'Button' })).find(b => b.text === 'Edit')
   await ui.press({ key: String(edit?.key) })
   expect(box.text).toBe('something I am typing')
   await ui.unmount()

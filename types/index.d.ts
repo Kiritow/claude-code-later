@@ -22,7 +22,7 @@ export type AfterTracker = {
 
 declare module 'claude-code' {
   interface PluginState {
-    after: {
+    later: {
       queue: Shaped<AfterItem[]>
       status: AfterStatus
       paused: boolean

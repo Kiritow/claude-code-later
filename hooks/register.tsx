@@ -39,18 +39,18 @@ const RECONCILE_TICKS = 4
 const BUSY: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['pending', 'running', 'waiting'])
 const ENDED: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['completed', 'failed', 'killed'])
 
-const queueAtom = atom({ plugin: 'after', key: 'queue' } as const, [] as AfterItem[], {
+const queueAtom = atom({ plugin: 'later', key: 'queue' } as const, [] as AfterItem[], {
   shape: 'queue-1',
 })
-const statusAtom = atom({ plugin: 'after', key: 'status' } as const, {
+const statusAtom = atom({ plugin: 'later', key: 'status' } as const, {
   waiting: [],
   settling: false,
 } as AfterStatus)
-const pausedAtom = atom({ plugin: 'after', key: 'paused' } as const, false)
-const editingAtom = atom({ plugin: 'after', key: 'editing' } as const, null as string | null)
+const pausedAtom = atom({ plugin: 'later', key: 'paused' } as const, false)
+const editingAtom = atom({ plugin: 'later', key: 'editing' } as const, null as string | null)
 const FRESH: AfterTracker = { mainTurns: [], agentTurns: [], lastEndOk: true, awaitingEnd: false }
 // tracker-3: no Stop snapshot any more. Older values are read as FRESH.
-const trackerAtom = atom({ plugin: 'after', key: 'tracker' } as const, FRESH, {
+const trackerAtom = atom({ plugin: 'later', key: 'tracker' } as const, FRESH, {
   shape: 'tracker-3',
 })
 
@@ -137,9 +137,9 @@ const publish = async ($: EngineInterface, status: AfterStatus) => {
 const waitingReasons = async ($: EngineInterface): Promise<string[]> => {
   const reasons: string[] = []
 
-  if (mainTurns.size > 0) reasons.push('Claude 正在工作')
-  else if (awaitingEnd) reasons.push('等待已提交的 prompt 跑完')
-  else if (!lastEndOk) reasons.push('上一轮被中断/出错, 等下一轮正常结束')
+  if (mainTurns.size > 0) reasons.push('Claude is working')
+  else if (awaitingEnd) reasons.push('the submitted prompt is still running')
+  else if (!lastEndOk) reasons.push('last turn was interrupted or failed; waiting for a turn to end normally')
 
   const agents = await $.agent.list().catch(() => [])
   const ended = new Set(agents.filter(a => ENDED.has(a.status)).map(a => a.id))
@@ -149,7 +149,7 @@ const waitingReasons = async ($: EngineInterface): Promise<string[]> => {
   const subagents = new Set<string>()
   for (const a of agents) if (BUSY.has(a.status)) subagents.add(a.id)
   for (const [turnId, agentId] of agentTurns) subagents.add(agentId ?? turnId)
-  if (subagents.size > 0) reasons.push(`${subagents.size} 个 subagent 运行中`)
+  if (subagents.size > 0) reasons.push(`${subagents.size} subagent${subagents.size === 1 ? '' : 's'} running`)
 
   return reasons
 }
@@ -178,20 +178,20 @@ const fire = async ($: EngineInterface, item: AfterItem) => {
     restoredAwaiting = false
     bump($)
     note(`submit "${preview(item.text, 30)}"`)
-    await publish($, { waiting: ['正在提交…'], settling: false })
-    say($, `提交 "${preview(item.text)}"`)
+    await publish($, { waiting: ['submitting…'], settling: false })
+    say($, `submitting "${preview(item.text)}"`)
     const result = await $.prompt.submit({ text: item.text, asUser: true })
     if (result.drop !== undefined) {
       awaitingEnd = false
       note(`submit dropped: ${result.drop}`)
-      say($, `提交被拦截: ${result.drop}`)
+      say($, `submission was blocked: ${result.drop}`)
     }
   } catch (err) {
     awaitingEnd = false
     note(`submit failed: ${String(err)}`)
     await update($, queueAtom, q => [item, ...q.filter(x => x.id !== item.id)])
     await update($, pausedAtom, () => true)
-    say($, `提交失败, 队列已暂停: ${String(err)}`)
+    say($, `submission failed, queue paused: ${String(err)}`)
   } finally {
     submitting = false
     bump($)
@@ -211,10 +211,10 @@ const tick = async ($: EngineInterface) => {
       return
     }
     const reasons = await waitingReasons($)
-    if (await read($, pausedAtom)) reasons.unshift('已暂停')
+    if (await read($, pausedAtom)) reasons.unshift('paused')
     const head = queue[0]
     if (head !== undefined && (await read($, editingAtom)) === head.id) {
-      reasons.unshift('第 1 条正在编辑')
+      reasons.unshift('item 1 is being edited')
     }
     if (reasons.length > 0) {
       streak = 0
@@ -236,17 +236,17 @@ const tick = async ($: EngineInterface) => {
     if (message !== lastError) note(`tick error: ${message}`)
     lastError = message
     streak = 0
-    await publish($, { waiting: [`内部错误: ${message}`], settling: false }).catch(() => undefined)
+    await publish($, { waiting: [`internal error: ${message}`], settling: false }).catch(() => undefined)
   } finally {
     ticking = false
   }
 }
 
 const runNow = async ($: EngineInterface) => {
-  if (submitting) return '正在提交中'
+  if (submitting) return 'already submitting'
   const queue = await read($, queueAtom)
   const head = queue[0]
-  if (head === undefined) return '队列为空'
+  if (head === undefined) return 'the queue is empty'
   await fire($, head)
   return undefined
 }
@@ -260,19 +260,19 @@ const startEdit = async ($: EngineInterface, id: string): Promise<string> => {
   const queue = await read($, queueAtom)
   const index = queue.findIndex(x => x.id === id)
   const item = queue[index]
-  if (item === undefined) return '这一条已经不在队列里了'
+  if (item === undefined) return 'that item is no longer in the queue'
   const box = await $.prompt.read()
   if (box.text.trim() !== '' && !OUR_LINE.test(box.text)) {
-    return '输入框里还有没发的内容, 先清空再编辑'
+    return 'the prompt box holds an unsent draft; clear it first, then edit'
   }
   await update($, editingAtom, () => id)
   const filled = await $.prompt.fill({ text: `/${lastCmd} ${item.text}`, mode: 'replace' })
   if (!filled.isFilled) {
     await update($, editingAtom, () => null)
-    return `没法填进输入框 (${filled.refusal ?? '被拦截'})`
+    return `could not fill the prompt box (${filled.refusal ?? 'blocked'})`
   }
   note(`edit #${index + 1}`)
-  return `正在编辑第 ${index + 1} 条: 改完回车保存, 不改点"取消"`
+  return `editing item ${index + 1}: press Enter to save, or Cancel to keep it as it was`
 }
 
 const cancelEdit = async ($: EngineInterface) => {
@@ -314,27 +314,27 @@ const runCommand = async (
   if (args === '' || args === '--list') {
     const queue = await read($, queueAtom)
     const status = await read($, statusAtom)
-    if (queue.length === 0) say($, '队列为空')
+    if (queue.length === 0) say($, 'the queue is empty')
     else {
-      const why = status.settling ? '即将提交' : status.waiting.join('; ') || '检查中'
-      say($, `${queue.length} 条排队 · ${why}`)
+      const why = status.settling ? 'about to submit' : status.waiting.join('; ') || 'checking'
+      say($, `${queue.length} queued · ${why}`)
     }
     return {}
   }
   if (args === '--clear') {
     await update($, queueAtom, () => [])
     await update($, editingAtom, () => null)
-    say($, '队列已清空')
+    say($, 'queue cleared')
     return {}
   }
   if (args === '--pause') {
     await update($, pausedAtom, () => true)
-    say($, `已暂停, /${cmd} --resume 继续`)
+    say($, `paused; /${cmd} --resume to continue`)
     return {}
   }
   if (args === '--resume') {
     await update($, pausedAtom, () => false)
-    say($, '已继续')
+    say($, 'resumed')
     return {}
   }
   if (args === '--debug') {
@@ -349,7 +349,7 @@ const runCommand = async (
     restoredAwaiting = false
     note(`reset by /${cmd} --reset`)
     bump($)
-    say($, '跟踪状态已重置')
+    say($, 'tracking state reset')
     return {}
   }
   if (args === '--now') {
@@ -362,7 +362,7 @@ const runCommand = async (
     const queue = await read($, queueAtom)
     const n = Number(editArg[1] ?? '1')
     const item = queue[n - 1]
-    if (item === undefined) say($, `没有第 ${n} 条`)
+    if (item === undefined) say($, `there is no item ${n}`)
     else {
       // The command's own line is still in the box as it runs; clear it first.
       await $.prompt.fill({ text: '', mode: 'replace' })
@@ -383,7 +383,7 @@ const runCommand = async (
     if (index >= 0) {
       bump($)
       note(`edited #${index + 1}`)
-      say($, `第 ${index + 1} 条已更新 "${preview(args)}"`)
+      say($, `item ${index + 1} updated: "${preview(args)}"`)
       return {}
     }
   }
@@ -393,7 +393,7 @@ const runCommand = async (
   streak = 0
   bump($)
   note(`queued #${queue.length} "${preview(item.text, 30)}"`)
-  say($, `已排队 #${queue.length} "${preview(item.text)}", Claude 做完当前的事后提交`)
+  say($, `queued #${queue.length} "${preview(item.text)}"; it goes once Claude is done`)
   return {}
 }
 
@@ -413,14 +413,14 @@ export const register: Register = on => {
     const hint = '<prompt> | --edit N | --now | --pause | --resume | --clear | --debug | --reset'
     await $.command.register({
       name: 'later',
-      description: 'Claude 做完当前的事(含 subagent)后再提交这条 prompt, 像排队消息一样',
+      description: 'Queue a prompt; it is submitted once Claude (and any subagent) is done, like a queued message',
       argumentHint: hint,
       immediate: true,
     })
     try {
       await $.command.register({
         name: 'after',
-        description: '同 /later: 把 prompt 排队, Claude 做完当前的事后提交',
+        description: 'Alias of /later: queue a prompt to submit once Claude is done',
         argumentHint: hint,
         immediate: true,
       })
@@ -508,10 +508,10 @@ export const register: Register = on => {
     const shown = queue.slice(0, room)
     const hidden = queue.length - shown.length
     const state = status.settling
-      ? '即将提交…'
+      ? 'about to submit…'
       : status.waiting.length > 0
-        ? `等待: ${status.waiting.join('; ')}`
-        : '检查中…'
+        ? `waiting: ${status.waiting.join('; ')}`
+        : 'checking…'
 
     return (
       <Box flexDirection="column">
@@ -521,19 +521,19 @@ export const register: Register = on => {
               <Text color="claude" bold>
                 /{lastCmd}
               </Text>{' '}
-              <Text dimColor>{queue.length} 条 ·</Text>{' '}
+              <Text dimColor>{queue.length} queued ·</Text>{' '}
               <Text color={status.settling ? 'success' : 'warning'}>{state}</Text>
             </Text>
           </Box>
-          <Button key="now" label="立即提交" onPress={() => void runNow($)} />
+          <Button key="now" label="Send now" onPress={() => void runNow($)} />
           <Button
             key="pause"
-            label={paused ? '继续' : '暂停'}
+            label={paused ? 'Resume' : 'Pause'}
             onPress={() => void update($, pausedAtom, p => !p)}
           />
           <Button
             key="clear"
-            label="清空"
+            label="Clear"
             onPress={() => {
               void update($, queueAtom, () => []).then(() => update($, editingAtom, () => null))
             }}
@@ -546,16 +546,16 @@ export const register: Register = on => {
               <Box flexGrow={1} flexShrink={1}>
                 <Text wrap="truncate-end">
                   <Text dimColor>{i + 1}.</Text>{' '}
-                  {isEditing && <Text color="suggestion">[编辑中] </Text>}
+                  {isEditing && <Text color="suggestion">[editing] </Text>}
                   {item.text.replace(/\s+/g, ' ')}
                 </Text>
               </Box>
               {isEditing ? (
-                <Button key={`cancel-${item.id}`} label="取消" plain onPress={() => void cancelEdit($)} />
+                <Button key={`cancel-${item.id}`} label="Cancel" plain onPress={() => void cancelEdit($)} />
               ) : (
                 <Button
                   key={`edit-${item.id}`}
-                  label="编辑"
+                  label="Edit"
                   plain
                   onPress={() => {
                     void startEdit($, item.id).then(msg => say($, `${msg}`))
@@ -575,7 +575,7 @@ export const register: Register = on => {
             </Box>
           )
         })}
-        {hidden > 0 && <Text dimColor>…还有 {hidden} 条</Text>}
+        {hidden > 0 && <Text dimColor>…and {hidden} more</Text>}
       </Box>
     )
   })
