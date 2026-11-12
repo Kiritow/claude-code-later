@@ -1,40 +1,52 @@
-# after
+# later
 
-`/after <prompt>`：像 Claude Desktop 的排队消息一样，把 prompt 放进队列，等 Claude 做完当前的事再作为你自己的输入提交。排队期间可以编辑、删除、立即提交。
+`/later <prompt>`: queue a prompt, like Claude Desktop's queued messages. It is submitted as your own message once Claude has finished what it is doing. While it waits you can edit it, remove it, or submit it at once.
 
-"做完"的判定（全部满足，并且连续静默 2 秒）：
+`/after` is an alias of `/later`: the two are identical. (The plugin itself is named `after`, installed as `after@claude-after`.)
 
-- 主对话没有正在运行的 turn，且上一轮是正常结束（被 Esc 打断或 API 出错不算，会等下一轮正常结束）
-- 上一条由 /after 提交的 prompt 那一轮已经结束
-- 没有 subagent / teammate 在跑（`$.agent.list()` + subagent 的 turn 事件）
+"Finished" means all of the following, holding for 2 seconds of quiet:
 
-不等后台 shell、Monitor、定时唤醒：和 Desktop 的排队消息一样，Claude 这一轮说完就发。
-队列一次只提交一条。
+- No main-conversation turn is running, and the last one ended normally. An interrupted turn (Esc) or one that died on an API error does not count: the queue waits for the next turn that ends normally.
+- The turn started by the previous queued prompt has ended.
+- No subagent or teammate is running (`$.agent.list()` plus the subagents' turn events).
 
-## 安装
+Background shells, monitors and scheduled wakeups are not waited for: as with Desktop's queued messages, the prompt goes as soon as Claude finishes its turn.
+The queue submits one prompt at a time.
+
+## Install
 
 ```sh
 claude plugin install after --marketplace /absolute/path/to/claude-after
 ```
 
-装到用户级别（全局），之后新开的会话都会加载。插件直接从这个目录读取，所以装好后不要移动目录；改了代码在会话里执行 `/reload-plugins` 就会生效。
-完整步骤、检查方法、更新和卸载见 [INSTALL.md](INSTALL.md)（按 Agent 能逐步照做的格式写的）。
+This installs at user scope (global): every new session loads it. The plugin is read from this folder directly, so do not move the folder after installing. After editing the code, run `/reload-plugins` in a session to pick up the change.
+Full steps, checks, update and uninstall are in [INSTALL.md](INSTALL.md), written so an agent can follow it step by step.
 
-## 命令
+## Commands
 
-`/later` 是 `/after` 的别名，两个完全等价，下表里的 `/after` 都可以换成 `/later`。
+Every `/later` below can also be written `/after`.
 
-| 命令 | 作用 |
+| Command | What it does |
 | --- | --- |
-| `/after <prompt>` | 加入队列（正在编辑某条时，回车会原位替换那一条） |
-| `/after --edit N` | 把第 N 条填进输入框编辑（默认第 1 条），编辑期间这条不会被提交 |
-| `/after` | 显示队列条数和正在等什么 |
-| `/after --now` | 不管状态，立即提交队首 |
-| `/after --pause` / `--resume` | 暂停 / 继续自动提交 |
-| `/after --clear` | 清空队列 |
-| `/after --debug` | 输出内部跟踪状态和最近事件（排查用，输出会进对话） |
-| `/after --reset` | 重置跟踪状态（判断卡住时的逃生口） |
+| `/later <prompt>` | Add to the queue. While an item is being edited, Enter replaces that item in place. |
+| `/later --edit N` | Put item N (default 1) in the prompt box for editing. The item is held, and not submitted, while it is edited. |
+| `/later` | Show how many items are queued and what the queue waits for. |
+| `/later --now` | Submit the head item right away, whatever the state. |
+| `/later --pause` / `--resume` | Pause / resume automatic submission. |
+| `/later --clear` | Empty the queue. |
+| `/later --debug` | Print the internal tracking state and recent events (for troubleshooting; the output goes into the conversation). |
+| `/later --reset` | Reset the tracking state (the way out if it seems stuck). |
 
-队列非空时，输入框上方会出现一条横栏，列出排队的 prompt 和当前在等什么，带"立即提交 / 暂停 / 清空"按钮。每条有"编辑"和 × 删除：点"编辑"会把 `/after 原文` 填进输入框（输入框里有你自己没发的内容时不会覆盖），改完回车原位保存，点"取消"放弃。
+## The band above the prompt
 
-排队的文字在真正提交前不会让模型看到（命令那一行记录里的参数会被替换掉）。
+While the queue is not empty, a band above the prompt box lists the queued prompts and what the queue waits for. It has three buttons: 立即提交 (submit now), 暂停 / 继续 (pause / resume) and 清空 (clear).
+
+Each item has 编辑 (edit) and × (remove). 编辑 puts `/later <text>` in the prompt box (it never overwrites a draft you have typed yourself). Edit it and press Enter to save it in place, or press 取消 (cancel) to give up.
+
+The band, the toasts and the edit line use the command name you last typed, `/later` or `/after`.
+
+The interface text (band, toasts) is in Chinese. The status line reads `等待: …` (waiting: …) with reasons such as `Claude 正在工作` (Claude is working), `N 个 subagent 运行中` (N subagents running), `第 1 条正在编辑` (item 1 is being edited) or `已暂停` (paused), and `即将提交…` (about to submit) once everything is clear.
+
+## Privacy
+
+The queued text is not shown to the model before it is actually submitted: the arguments in the command's transcript row are replaced.

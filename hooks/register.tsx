@@ -11,7 +11,7 @@ import type {
 import type { AfterItem, AfterStatus, AfterTracker } from '../types'
 
 // ---------------------------------------------------------------------------
-// /after <prompt>   (or /later <prompt>: the same command under another name)
+// /later <prompt>   (or /after <prompt>: the same command under another name)
 //
 // A queue of prompts, like the queued messages of Claude Desktop: each one is
 // submitted as the person's own prompt once Claude has finished what it is
@@ -55,7 +55,7 @@ const trackerAtom = atom({ plugin: 'after', key: 'tracker' } as const, FRESH, {
 })
 
 /** The names the command answers to; both behave the same. */
-const COMMANDS = ['after', 'later'] as const
+const COMMANDS = ['later', 'after'] as const
 const AFTER_CMD = /<command-name>\/?(?:after|later)<\/command-name>/
 /** A prompt-box line that is one of this mod's commands. */
 const OUR_LINE = /^\s*\/(?:after|later)(?:\s|$)/
@@ -95,7 +95,7 @@ let submitting = false
 let lastStatus = ''
 let timer: Timer | undefined
 /** The name the person last used, for toasts, the band and edit lines. */
-let lastCmd: string = 'after'
+let lastCmd: string = 'later'
 
 // Diagnostics for /after --debug.
 let ticks = 0
@@ -412,21 +412,21 @@ export const register: Register = on => {
 
     const hint = '<prompt> | --edit N | --now | --pause | --resume | --clear | --debug | --reset'
     await $.command.register({
-      name: 'after',
+      name: 'later',
       description: 'Claude 做完当前的事(含 subagent)后再提交这条 prompt, 像排队消息一样',
       argumentHint: hint,
       immediate: true,
     })
     try {
       await $.command.register({
-        name: 'later',
-        description: '同 /after: 把 prompt 排队, Claude 做完当前的事后提交',
+        name: 'after',
+        description: '同 /later: 把 prompt 排队, Claude 做完当前的事后提交',
         argumentHint: hint,
         immediate: true,
       })
     } catch (err) {
-      // Should a later Claude Code ship a /later of its own, /after still works.
-      note(`could not register /later: ${String(err)}`)
+      // Should a later Claude Code ship an /after of its own, /later still works.
+      note(`could not register /after: ${String(err)}`)
     }
 
     timer?.cancel()
@@ -486,8 +486,8 @@ export const register: Register = on => {
 
   // ---- the command --------------------------------------------------------
 
-  on('command.run', { command: 'after' }, ($, e) => runCommand($, e, 'after'))
   on('command.run', { command: 'later' }, ($, e) => runCommand($, e, 'later'))
+  on('command.run', { command: 'after' }, ($, e) => runCommand($, e, 'after'))
 
   // ---- the band above the prompt -----------------------------------------
 

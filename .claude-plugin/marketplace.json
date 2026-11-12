@@ -5,7 +5,7 @@
     {
       "name": "after",
       "source": "./",
-      "description": "/after <prompt>: queue a prompt that is submitted only once the current work is truly finished (main turn, subagents, background tasks)"
+      "description": "/later <prompt> (alias /after): queue prompts like Claude Desktop's queued messages; each is submitted once Claude finishes its turn and no subagent runs"
     }
   ]
 }
