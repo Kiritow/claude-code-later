@@ -202,3 +202,64 @@ test('the queued text is hidden from the command row', async ($, on) => {
   expect(text).toContain('<command-name>/after</command-name>')
   expect(text.includes('secret plan')).toBe(false)
 })
+
+const BAND_PROPS = (isWorking: boolean) => ({
+  hasSurvey: false,
+  isCollapsed: false,
+  isWorking,
+  maxRows: 10,
+  bodyColumns: 80,
+  scroll: { offset: 0, bodyRows: 9 },
+  view: {},
+})
+
+test('a "running" turn restored from an earlier load is dropped once the prompt box is idle', async ($, on) => {
+  const { clock, submitted } = world(on, { list: [] })
+  // An earlier load heard a turn start and was unloaded before its end.
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await start($, 'lost-turn')
+  await clock.advance(100)
+  // The next load restores that turn from $.state.
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await after($, 'should still go')
+  await clock.advance(1_000)
+  expect(submitted).toEqual([])
+
+  // The prompt box says nothing runs: the restored turn is dropped.
+  const ui = await $.ui.mount({ plugin: 'after', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS(false) })
+  await clock.advance(6_000)
+  await ui.unmount()
+  expect(submitted).toEqual(['should still go'])
+})
+
+test('a turn this load heard start is not dropped on the prompt box alone', async ($, on) => {
+  const { clock, submitted } = world(on, { list: [] })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await start($, 't1')
+  await after($, 'wait for me')
+  const ui = await $.ui.mount({ plugin: 'after', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS(false) })
+  await clock.advance(10_000)
+  await ui.unmount()
+  expect(submitted).toEqual([])
+})
+
+test('a Stop clears a main turn whose end was never heard', async ($, on) => {
+  const { clock, submitted } = world(on, { list: [] })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await start($, 'never-completed')
+  await after($, 'go')
+  await clock.advance(5_000)
+  expect(submitted).toEqual([])
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [], session_crons: [] })
+  await clock.advance(3_000)
+  expect(submitted).toEqual(['go'])
+})
+
+test('/after --debug reports the tracker', async ($, on) => {
+  world(on, { list: [] })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await start($, 't9')
+  const out = await after($, '--debug')
+  expect(String(out.text)).toContain('mainTurns: [t9]')
+  expect(String(out.text)).toContain('turn.start main t9')
+})

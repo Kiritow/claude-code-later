@@ -86,7 +86,7 @@ Optional static checks (no session needed):
 
 ```sh
 claude plugin validate <REPO>   # must end with "✔ Validation passed" (warnings about README/LICENSE/icon are for the public directory, ignore them)
-claude plugin test <REPO>       # must report "5 pass, 0 fail" (or more passes if tests were added)
+claude plugin test <REPO>       # must report "9 pass, 0 fail" (or more passes if tests were added)
 ```
 
 Functional check (needs a person at an interactive session, so tell the user to do it):
@@ -120,6 +120,7 @@ Running sessions keep it until restarted (or until `/reload-plugins`). The repos
 | `/after` is an unknown command | The session started before the install. Start a new session, or run `/reload-plugins`. Then check Step 3. |
 | A queued prompt was submitted twice | Two copies are loaded. Redo Step 1 and keep exactly one. |
 | The queue never fires | The band says what it waits for. A persistent `Monitor`, a pending one-shot `ScheduleWakeup` or a `/loop` keeps it waiting by design. `/after --now` submits the head item at once. `/after --resume` if it says `已暂停` (paused). |
+| The band keeps saying `等待: ...` although nothing runs | Run `/after --debug`: it prints the tracker (main turns, Stop, agents, background tasks) and the last 40 events into the transcript. `/after --reset` clears the tracker. A "running" turn restored from an earlier load is dropped by itself once the prompt box reports idle for 2s, and every unblocked Stop clears the main turns. |
 | A hook error line in the transcript naming `after` | Run `claude --debug` and look for lines starting with `after:`. Run `claude plugin validate <REPO>`. |
 | Type-checking with `tsc -p <REPO>` fails with a missing `.claude-plugin/types/tsconfig.json` | That folder is written by Claude Code only when it loads the folder as a hot-reloaded mod. Start once with `claude --plugin-dir <REPO>` (interactive, and only while the installed copy is disabled, see Step 1) to have it written. Otherwise use the tsconfig from the header of the engine's `claude-code.d.ts`. The folder is git-ignored. |
 

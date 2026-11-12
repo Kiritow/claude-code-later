@@ -5,7 +5,7 @@ export type AfterItem = { id: string; text: string; addedAt: number }
 export type AfterStatus = { waiting: string[]; settling: boolean }
 
 /** A background task as the last Stop event reported it. */
-export type AfterTask = { id: string; type: string; description: string }
+export type AfterTask = { id: string; type: string; status: string; description: string }
 
 /** A session cron as the last Stop event reported it. */
 export type AfterCron = { id: string; recurring: boolean }

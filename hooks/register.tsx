@@ -25,6 +25,13 @@ const TICK_MS = 500
 const QUIET_TICKS = 4
 /** Ticks an ended agent may linger in the Stop snapshot before it is dropped. */
 const PRUNE_TICKS = 10
+/**
+ * Ticks the prompt box must report "not working" before a "running" turn
+ * restored from $.state (written by an earlier load of this mod) is dropped.
+ */
+const RECONCILE_TICKS = 4
+/** Task statuses that are over, should a Stop snapshot ever carry one. */
+const TASK_DONE: ReadonlySet<string> = new Set(['completed', 'failed', 'killed', 'stopped', 'error'])
 
 const BUSY: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['pending', 'running', 'waiting'])
 const ENDED: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['completed', 'failed', 'killed'])
@@ -45,8 +52,10 @@ const FRESH: AfterTracker = {
   bgTasks: [],
   crons: [],
 }
+// tracker-2: AfterTask gained `status`. A value stored under tracker-1 (or by
+// an earlier copy of this mod) is read as FRESH.
 const trackerAtom = atom({ plugin: 'after', key: 'tracker' } as const, FRESH, {
-  shape: 'tracker-1',
+  shape: 'tracker-2',
 })
 
 const AFTER_CMD = /<command-name>\/?after<\/command-name>/
@@ -69,7 +78,6 @@ function countBy(tasks: readonly AfterTask[]): string {
 
 // Module state: starts over on a reload; the tracker part is restored from
 // $.state in session.start.
-// Mirrors of the tracker; restored from $.state in session.start.
 let mainTurns = new Set<string>()
 let agentTurns = new Map<string, string | null>()
 let stopSeen = true
@@ -87,6 +95,25 @@ let submitting = false
 let lastStatus = ''
 let timer: Timer | undefined
 const endedTicks = new Map<string, number>()
+
+// What came back from $.state at load and was not heard by this load: a turn
+// whose end was missed (the mod was unloaded first) would otherwise wedge the
+// queue forever. Checked against the prompt box's own "working" flag.
+let restoredMain = new Set<string>()
+let restoredStopPending = false
+let uiWorking: boolean | undefined
+let uiIdleTicks = 0
+
+// Diagnostics for /after --debug.
+let ticks = 0
+let lastError = ''
+const events: string[] = []
+function note(text: string): void {
+  const d = new Date()
+  const t = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+  events.push(`${t} ${text}`)
+  if (events.length > 40) events.splice(0, events.length - 40)
+}
 
 const persist = ($: EngineInterface) => {
   void update($, trackerAtom, () => ({
@@ -136,6 +163,7 @@ const waitingReasons = async ($: EngineInterface): Promise<string[]> => {
   // normally wakes the main loop (task notification -> new turn -> new Stop);
   // if that never comes, drop it after a grace period instead of hanging.
   const live = bgTasks.filter(t => {
+    if (TASK_DONE.has(t.status)) return false
     if (!ended.has(t.id)) return true
     const n = (endedTicks.get(t.id) ?? 0) + 1
     endedTicks.set(t.id, n)
@@ -181,10 +209,25 @@ const fire = async ($: EngineInterface, item: AfterItem) => {
   }
 }
 
+/** Drops restored "running" state once the prompt box says nothing runs. */
+const reconcile = ($: EngineInterface) => {
+  uiIdleTicks = uiWorking === false ? uiIdleTicks + 1 : 0
+  if (uiIdleTicks < RECONCILE_TICKS) return
+  if (restoredMain.size === 0 && !restoredStopPending) return
+  for (const id of restoredMain) mainTurns.delete(id)
+  if (restoredStopPending) stopSeen = true
+  note(`reconciled restored state (turns: ${[...restoredMain].join(',') || '-'}, stop pending: ${restoredStopPending})`)
+  restoredMain = new Set()
+  restoredStopPending = false
+  bump($)
+}
+
 const tick = async ($: EngineInterface) => {
   if (ticking || submitting) return
   ticking = true
+  ticks += 1
   try {
+    reconcile($)
     const queue = await read($, queueAtom)
     if (queue.length === 0) {
       streak = 0
@@ -209,9 +252,36 @@ const tick = async ($: EngineInterface) => {
     }
     const head = queue[0]
     if (head !== undefined) await fire($, head)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (message !== lastError) note(`tick error: ${message}`)
+    lastError = message
+    await publish($, { waiting: [`内部错误: ${message}`], settling: false }).catch(() => undefined)
   } finally {
     ticking = false
   }
+}
+
+const debugText = async ($: EngineInterface): Promise<string> => {
+  const queue = await read($, queueAtom)
+  const status = await read($, statusAtom)
+  const paused = await read($, pausedAtom)
+  const agents = await $.agent.list().catch(() => [])
+  return [
+    '/after debug',
+    `queue: ${queue.length}${queue.map((q, i) => `\n  ${i + 1}. ${preview(q.text, 60)}`).join('')}`,
+    `paused: ${paused}  status: ${status.settling ? 'settling' : status.waiting.join('; ') || '-'}`,
+    `mainTurns: [${[...mainTurns].join(', ')}]  stopSeen: ${stopSeen}  lastEndOk: ${lastEndOk}`,
+    `restoredMain: [${[...restoredMain].join(', ')}]  restoredStopPending: ${restoredStopPending}`,
+    `uiWorking: ${uiWorking}  uiIdleTicks: ${uiIdleTicks}  ticks: ${ticks}  epoch: ${epoch}  streak: ${streak}`,
+    `agentTurns: [${[...agentTurns].map(([t, a]) => `${a ?? '?'}:${t}`).join(', ')}]`,
+    `agents: [${agents.map(a => `${a.id}=${a.status}`).join(', ')}]`,
+    `bgTasks: [${bgTasks.map(t => `${t.type}:${t.id}=${t.status}`).join(', ')}]`,
+    `crons: [${crons.map(c => `${c.id}${c.recurring ? '(recurring)' : ''}`).join(', ')}]`,
+    `lastError: ${lastError || '-'}`,
+    'events:',
+    ...events.map(x => `  ${x}`),
+  ].join('\n')
 }
 
 const runNow = async ($: EngineInterface) => {
@@ -234,11 +304,14 @@ export const register: Register = on => {
     lastEndOk = saved.lastEndOk
     bgTasks = saved.bgTasks
     crons = saved.crons
+    restoredMain = new Set(saved.mainTurns)
+    restoredStopPending = !saved.stopSeen
+    note(`session.start: restored turns [${saved.mainTurns.join(',')}], stopSeen ${saved.stopSeen}, bg ${saved.bgTasks.length}`)
 
     await $.command.register({
       name: 'after',
       description: '当前工作真正完成后(含 subagent/后台任务)再提交这条 prompt',
-      argumentHint: '<prompt> | --now | --pause | --resume | --clear',
+      argumentHint: '<prompt> | --now | --pause | --resume | --clear | --debug | --reset',
       immediate: true,
     })
 
@@ -256,8 +329,11 @@ export const register: Register = on => {
     if (e.agentId === undefined) {
       mainTurns.add(e.turnId)
       stopSeen = false
+      restoredStopPending = false
+      note(`turn.start main ${e.turnId}`)
     } else {
       agentTurns.set(e.turnId, e.agentId)
+      note(`turn.start agent ${e.agentId} ${e.turnId}`)
     }
     bump($)
     return next(e)
@@ -266,9 +342,12 @@ export const register: Register = on => {
   on('turn.complete', ($, e, next) => {
     if (e.agentId === undefined) {
       mainTurns.delete(e.turnId)
+      restoredMain.delete(e.turnId)
       lastEndOk = e.reason === 'answer' || e.reason === 'refusal'
+      note(`turn.complete main ${e.turnId} ${e.reason}`)
     } else {
       agentTurns.delete(e.turnId)
+      note(`turn.complete agent ${e.agentId} ${e.turnId} ${e.reason}`)
     }
     bump($)
     return next(e)
@@ -277,17 +356,24 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     const result = await next(e)
     if (result.block === undefined) {
+      // The main loop has stopped: whatever main turn we think runs is over.
       stopSeen = true
+      mainTurns.clear()
+      restoredMain = new Set()
+      restoredStopPending = false
       bgTasks = (e.background_tasks ?? []).map(t => ({
         id: t.id,
         type: t.type,
+        status: t.status,
         description: t.description,
       }))
       crons = (e.session_crons ?? []).map(c => ({ id: c.id, recurring: c.recurring }))
       endedTicks.clear()
+      note(`Stop: bg [${bgTasks.map(t => `${t.type}=${t.status}`).join(', ')}], crons ${crons.length}`)
     } else {
       // A Stop hook sent the model back to work: not done.
       stopSeen = false
+      note('Stop blocked by a hook: model continues')
     }
     bump($)
     return result
@@ -341,6 +427,23 @@ export const register: Register = on => {
       $.ui.toast('/after: 已继续')
       return {}
     }
+    if (args === '--debug') {
+      return { text: await debugText($) }
+    }
+    if (args === '--reset') {
+      mainTurns = new Set()
+      agentTurns = new Map()
+      stopSeen = true
+      lastEndOk = true
+      bgTasks = []
+      crons = []
+      restoredMain = new Set()
+      restoredStopPending = false
+      note('reset by /after --reset')
+      bump($)
+      $.ui.toast('/after: 跟踪状态已重置')
+      return {}
+    }
     if (args === '--now') {
       const why = await runNow($)
       if (why !== undefined) $.ui.toast(`/after: ${why}`)
@@ -357,6 +460,10 @@ export const register: Register = on => {
   // ---- the band above the prompt -----------------------------------------
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // The prompt box's own word on whether a model turn runs; reconcile()
+    // reads it to drop stale restored state.
+    if (uiWorking !== e.props.isWorking) note(`prompt box isWorking=${e.props.isWorking}`)
+    uiWorking = e.props.isWorking
     if (e.props.hasSurvey) return next(e)
     const queue = await read($, queueAtom)
     if (queue.length === 0) return next(e)

@@ -30,6 +30,8 @@ claude plugin install after --marketplace /absolute/path/to/claude-after
 | `/after --now` | 不管状态，立即提交队首 |
 | `/after --pause` / `--resume` | 暂停 / 继续自动提交 |
 | `/after --clear` | 清空队列 |
+| `/after --debug` | 输出内部跟踪状态和最近事件（排查用，输出会进对话） |
+| `/after --reset` | 重置跟踪状态（判断卡住时的逃生口） |
 
 队列非空时，输入框上方会出现一条横栏，列出排队的 prompt 和当前在等什么，带"立即提交 / 暂停 / 清空"按钮，每条可单独 × 删除。
 
