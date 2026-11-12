@@ -1,0 +1,11 @@
+{
+  "name": "claude-after",
+  "owner": { "name": "Kiritow" },
+  "plugins": [
+    {
+      "name": "after",
+      "source": "./",
+      "description": "/after <prompt>: queue a prompt that is submitted only once the current work is truly finished (main turn, subagents, background tasks)"
+    }
+  ]
+}

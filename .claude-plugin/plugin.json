@@ -1,0 +1,6 @@
+{
+  "name": "after",
+  "version": "0.1.0",
+  "description": "/after <prompt>: queue a prompt that is submitted only once the current work is truly finished (main turn, subagents, background tasks)",
+  "types": "./types/index.d.ts"
+}
