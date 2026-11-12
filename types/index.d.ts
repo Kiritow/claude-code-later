@@ -4,12 +4,6 @@ export type AfterItem = { id: string; text: string; addedAt: number }
 /** What the band shows: why the queue is still waiting, or that it is about to fire. */
 export type AfterStatus = { waiting: string[]; settling: boolean }
 
-/** A background task as the last Stop event reported it. */
-export type AfterTask = { id: string; type: string; status: string; description: string }
-
-/** A session cron as the last Stop event reported it. */
-export type AfterCron = { id: string; recurring: boolean }
-
 /** A model turn that has started and not yet completed. */
 export type AfterTurn = { turnId: string; agentId: string | null }
 
@@ -20,12 +14,10 @@ export type AfterTurn = { turnId: string; agentId: string | null }
 export type AfterTracker = {
   mainTurns: string[]
   agentTurns: AfterTurn[]
-  /** A Stop (that was not blocked) arrived since the last main turn started. */
-  stopSeen: boolean
   /** The last main turn ended normally (not interrupted, no API error). */
   lastEndOk: boolean
-  bgTasks: AfterTask[]
-  crons: AfterCron[]
+  /** A prompt this mod submitted has not had its main turn end yet. */
+  awaitingEnd: boolean
 }
 
 declare module 'claude-code' {
@@ -34,6 +26,8 @@ declare module 'claude-code' {
       queue: Shaped<AfterItem[]>
       status: AfterStatus
       paused: boolean
+      /** The id of the item being edited in the prompt box; it is held meanwhile. */
+      editing: string | null
       tracker: Shaped<AfterTracker>
     }
   }

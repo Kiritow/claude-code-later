@@ -119,8 +119,8 @@ Running sessions keep it until restarted (or until `/reload-plugins`). The repos
 | --- | --- |
 | `/after` is an unknown command | The session started before the install. Start a new session, or run `/reload-plugins`. Then check Step 3. |
 | A queued prompt was submitted twice | Two copies are loaded. Redo Step 1 and keep exactly one. |
-| The queue never fires | The band says what it waits for. A persistent `Monitor`, a pending one-shot `ScheduleWakeup` or a `/loop` keeps it waiting by design. `/after --now` submits the head item at once. `/after --resume` if it says `已暂停` (paused). |
-| The band keeps saying `等待: ...` although nothing runs | Run `/after --debug`: it prints the tracker (main turns, Stop, agents, background tasks) and the last 40 events into the transcript. `/after --reset` clears the tracker. A "running" turn restored from an earlier load is dropped by itself once the prompt box reports idle for 2s, and every unblocked Stop clears the main turns. |
+| The queue never fires | The band says what it waits for (`Claude 正在工作`, a busy subagent, `第 1 条正在编辑`, `已暂停`). `/after --now` submits the head item at once. `/after --resume` if it says `已暂停` (paused); cancel the edit if the head item is being edited. |
+| The band keeps saying `等待: ...` although nothing runs | Run `/after --debug`: it prints the tracker (main turns, agents, edit state) and the last 40 events into the transcript. `/after --reset` clears the tracker. A "running" turn restored from an earlier load is dropped by itself once the prompt box reports idle for 2s. |
 | A hook error line in the transcript naming `after` | Run `claude --debug` and look for lines starting with `after:`. Run `claude plugin validate <REPO>`. |
 | Type-checking with `tsc -p <REPO>` fails with a missing `.claude-plugin/types/tsconfig.json` | That folder is written by Claude Code only when it loads the folder as a hot-reloaded mod. Start once with `claude --plugin-dir <REPO>` (interactive, and only while the installed copy is disabled, see Step 1) to have it written. Otherwise use the tsconfig from the header of the engine's `claude-code.d.ts`. The folder is git-ignored. |
 
@@ -130,7 +130,7 @@ Running sessions keep it until restarted (or until `/reload-plugins`). The repos
 .claude-plugin/plugin.json        manifest (name, version, "types")
 .claude-plugin/marketplace.json   makes this repo installable as marketplace "claude-after"
 hooks/hooks.json                  names the hooks module
-hooks/register.tsx                the mod: /after command, work tracking, band above the prompt
+hooks/register.tsx                the mod: /after command, turn/subagent tracking, band above the prompt (edit/remove/submit now)
 types/index.d.ts                  $.state contract (queue, status, paused, tracker)
 tests/after.test.tsx              tests run by `claude plugin test`
 tsconfig.json                     extends the engine-written .claude-plugin/types/tsconfig.json
